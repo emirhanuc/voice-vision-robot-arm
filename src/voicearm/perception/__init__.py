@@ -15,7 +15,8 @@ class Perception:
 
     def observe(self) -> list[Detection]:
         if self.robot is not None:
-            self.robot.move_to(self.OBSERVE_POSE)
+            spec = getattr(self.robot, "spec", None)
+            self.robot.move_to(spec.layout.observe_pose if spec else self.OBSERVE_POSE)
         frame = self.camera.capture()
         # masadan 20 cm'den yüksekte olanlar (ör. gripper'da tutulan küp) sahnenin parçası değil
         dets = [d for d in self.detector.detect(frame) if d.height < 0.2]

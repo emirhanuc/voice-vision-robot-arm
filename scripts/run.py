@@ -5,6 +5,7 @@
     python scripts/run.py --llm                   # ayrıştırıcı: Ollama (qwen2.5:7b)
     python scripts/run.py --detector owl          # OWLv2 açık sözlüklü tespit
     python scripts/run.py --seed 7                # rastgele nesne yerleşimi
+    python scripts/run.py --robot proto6          # kendi 6 eksenli kolum (step motorlu)
     python scripts/run.py --headless -c "kırmızı küpü mavi kutuya koy" -c "eve dön"
 """
 import argparse
@@ -14,26 +15,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from voicearm.executor import Agent  # noqa: E402
-from voicearm.nlp.parser import OllamaParser, RuleParser  # noqa: E402
-from voicearm.perception import ColorDetector, Perception, SimCamera  # noqa: E402
-from voicearm.sim.robot import PandaSim  # noqa: E402
-from voicearm.sim.scene import build_scene  # noqa: E402
+from voicearm.world import build_world  # noqa: E402
 
 
 def build_agent(headless=False, llm=False, model="qwen2.5:7b", detector="color", seed=None,
-                camera_png="logs/camera.png"):
-    scene = build_scene(gui=not headless, seed=seed)
-    robot = PandaSim(scene.robot_id, realtime=not headless)
-    if detector == "owl":
-        from voicearm.perception import OwlDetector
-        det = OwlDetector()
-    else:
-        det = ColorDetector()
-    Path("logs").mkdir(exist_ok=True)
-    perception = Perception(SimCamera(), det, robot, save_path=camera_png)
-    parser = OllamaParser(model=model) if llm else RuleParser()
-    return scene, robot, Agent(parser, perception, robot)
+                robot="panda", camera_png="logs/camera.png"):
+    w = build_world(robot=robot, gui=not headless, seed=seed, detector=detector, llm=llm, model=model,
+                    camera_png=camera_png)
+    return w.scene, w.robot, w.agent
 
 
 def main():
@@ -45,11 +34,12 @@ def main():
     ap.add_argument("--whisper", default="small", help="tiny | base | small | medium")
     ap.add_argument("--detector", choices=["color", "owl"], default="color")
     ap.add_argument("--seed", type=int, default=None, help="Rastgele sahne")
+    ap.add_argument("--robot", choices=["panda", "proto6"], default="panda")
     ap.add_argument("-c", "--command", action="append", help="Komut (birden fazla verilebilir)")
     ap.add_argument("--log", default="logs/last_run.json", help="Kontrol kaydı (grafik için)")
     args = ap.parse_args()
 
-    _, robot, agent = build_agent(args.headless, args.llm, args.model, args.detector, args.seed)
+    _, robot, agent = build_agent(args.headless, args.llm, args.model, args.detector, args.seed, args.robot)
     listen = None
     if args.voice:
         from voicearm.stt.whisper_stt import WhisperSTT
@@ -66,6 +56,9 @@ def main():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(robot.log))
         print(f"Kontrol kaydı: {path}  (grafik: python scripts/plot_tracking.py)")
+        if robot.spec.control == "stepper":
+            sat = ", ".join(f"J{i + 1}:{t:.2f}s" for i, t in enumerate(robot.saturation_time))
+            print(f"Step motor tork limitinde geçen süre (adım kaçırma riski): {sat}")
 
     try:
         if args.command:

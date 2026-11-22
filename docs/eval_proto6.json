@@ -1,0 +1,11 @@
+{
+  "robot": "proto6",
+  "detector": "color",
+  "trials": 20,
+  "detection_rate": 1.0,
+  "loc_err_mm_mean": 1.893717766517348,
+  "loc_err_mm_p95": 3.142040665636696,
+  "task_success_rate": 1.0,
+  "failures": [],
+  "wall_time_s": 112.9
+}

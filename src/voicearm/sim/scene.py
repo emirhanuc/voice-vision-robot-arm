@@ -1,9 +1,11 @@
-"""PyBullet sahnesi: masa, Franka Panda kolu, renkli küpler ve hedef kutular."""
+"""PyBullet sahnesi: masa, robot kol (panda | proto6), renkli küpler ve hedef kutular."""
 import math
 from dataclasses import dataclass, field
 
 import pybullet as p
 import pybullet_data
+
+from .robots import ROBOTS, RobotSpec
 
 COLORS = {
     "kirmizi": [0.9, 0.1, 0.1, 1],
@@ -28,6 +30,7 @@ class SceneObject:
 class Scene:
     client: int
     robot_id: int
+    spec: RobotSpec = None
     objects: dict = field(default_factory=dict)
 
     def position(self, name: str):
@@ -62,41 +65,44 @@ def _make_tray(color, pos, size=0.07, wall=0.005, height=0.03):
     return p.createMultiBody(0, col, vis, basePosition=pos)
 
 
-def _random_positions(seed, n, min_dist=0.09):
+def _random_positions(seed, n, layout, min_dist=0.08):
     """Çalışma alanında, kutulardan ve birbirinden uzak rastgele küp konumları."""
     import random
     rng = random.Random(seed)
-    trays = [(0.35, 0.35), (0.35, -0.35)]
+    trays = list(layout.trays.values())
     out = []
     while len(out) < n:
-        xy = (rng.uniform(0.38, 0.68), rng.uniform(-0.28, 0.28))
+        xy = (rng.uniform(*layout.random_x), rng.uniform(*layout.random_y))
         if all(math.dist(xy, o) > min_dist for o in out) and all(math.dist(xy, t) > 0.14 for t in trays):
             out.append(xy)
     return out
 
 
-def build_scene(gui: bool = True, seed: int | None = None) -> Scene:
+def build_scene(gui: bool = True, seed: int | None = None, robot: str = "panda") -> Scene:
+    spec = ROBOTS[robot]
+    layout = spec.layout
     client = p.connect(p.GUI if gui else p.DIRECT)
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
     p.setGravity(0, 0, -9.81)
     if gui:
         p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
-        p.resetDebugVisualizerCamera(1.2, 50, -35, [0.5, 0, TABLE_Z])
+        dist = 1.2 if robot == "panda" else 0.8
+        p.resetDebugVisualizerCamera(dist, 50, -35, [layout.camera_target[0], 0, TABLE_Z])
 
     p.loadURDF("plane.urdf")
     p.loadURDF("table/table.urdf", [0.5, 0, 0], useFixedBase=True)
-    robot = p.loadURDF("franka_panda/panda.urdf", [0, 0, TABLE_Z], useFixedBase=True)
+    robot_id = p.loadURDF(spec.urdf, [0, 0, TABLE_Z], useFixedBase=True,
+                          flags=p.URDF_USE_INERTIA_FROM_FILE)
 
-    scene = Scene(client=client, robot_id=robot)
+    scene = Scene(client=client, robot_id=robot_id, spec=spec)
     z = TABLE_Z + CUBE_HALF
-    cube_xy = [("kirmizi", (0.45, -0.15)), ("yesil", (0.55, 0.0)),
-               ("mavi", (0.45, 0.15)), ("sari", (0.6, -0.25))]
+    cube_xy = list(zip(COLORS, layout.cubes))
     if seed is not None:
-        cube_xy = list(zip(COLORS, _random_positions(seed, len(COLORS))))
+        cube_xy = list(zip(COLORS, _random_positions(seed, len(COLORS), layout)))
     for color, xy in cube_xy:
         name = f"{color}_kup"
         scene.objects[name] = SceneObject(name, color, "kup", _make_cube(color, [*xy, z]))
-    for color, xy in [("mavi", (0.35, 0.35)), ("kirmizi", (0.35, -0.35))]:
+    for color, xy in layout.trays.items():
         name = f"{color}_kutu"
         scene.objects[name] = SceneObject(name, color, "kutu", _make_tray(color, [*xy, TABLE_Z]))
 

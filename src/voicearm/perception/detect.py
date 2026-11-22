@@ -50,18 +50,27 @@ def estimate_table_height(points: np.ndarray) -> float:
     return float((edges[i] + edges[i + 1]) / 2)
 
 
-def measure(points: np.ndarray, mask: np.ndarray, table_z: float):
-    """Maske içindeki 3D noktalardan üst yüzey merkezi, genişlik ve yükseklik."""
+TOP_BAND = 0.004   # m; üst yüzey sayılacak kalınlık. Gerçek RealSense gürültüsünde ~0.008 yapın.
+
+
+def measure(points: np.ndarray, mask: np.ndarray, table_z: float, top_band: float = TOP_BAND):
+    """Maske içindeki 3D noktalardan üst yüzey merkezi, genişlik ve yükseklik.
+    Üst yüzey dar bir bantla seçilir; geniş bant, kameraya bakan yan yüzün noktalarını da alıp
+    merkezi kameraya doğru kaydırıyordu (~4 mm)."""
     pts = points[mask.astype(bool)]
     pts = pts[np.isfinite(pts).all(axis=1)]
     pts = pts[pts[:, 2] > table_z + 0.003]
     if len(pts) < 20:
         return None
     top_z = np.percentile(pts[:, 2], 95)
-    top = pts[pts[:, 2] > top_z - 0.01]          # sadece üst yüzey (yan yüzleri at)
-    width = float(np.max(np.ptp(pts[:, :2], axis=0)))
-    center = np.array([*top[:, :2].mean(axis=0), top_z])
-    return center, width, float(top_z - table_z)
+    top = pts[pts[:, 2] > top_z - top_band]      # sadece üst yüzey (yan yüzleri at)
+    lo, hi = np.percentile(pts[:, :2], 2, axis=0), np.percentile(pts[:, :2], 98, axis=0)
+    width = float(np.max(hi - lo))
+    if width < CUBE_MAX_WIDTH:
+        xy = top[:, :2].mean(axis=0)              # dolu nesne: üst yüzeyin merkezi
+    else:
+        xy = (lo + hi) / 2                        # içi boş tepsi: kenarlar görünmeyebilir, sınır kutusu merkezi
+    return np.array([*xy, top_z]), width, float(top_z - table_z)
 
 
 class ColorDetector:

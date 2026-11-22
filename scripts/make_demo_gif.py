@@ -7,12 +7,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from voicearm.executor import Agent  # noqa: E402
-from voicearm.nlp.parser import RuleParser  # noqa: E402
-from voicearm.perception import ColorDetector, Perception, SimCamera  # noqa: E402
 from voicearm.sim.recorder import Recorder  # noqa: E402
-from voicearm.sim.robot import PandaSim  # noqa: E402
-from voicearm.sim.scene import build_scene  # noqa: E402
+from voicearm.world import build_world  # noqa: E402
 
 SCRIPT = [
     "küpü mavi kutuya koy",
@@ -21,14 +17,16 @@ SCRIPT = [
 ]
 
 ap = argparse.ArgumentParser()
-ap.add_argument("-o", "--out", default="docs/demo.gif")
+ap.add_argument("-o", "--out", default=None)
+ap.add_argument("--robot", choices=["panda", "proto6"], default="panda")
 args = ap.parse_args()
 
-scene = build_scene(gui=False)
-robot = PandaSim(scene.robot_id, log=False)
-rec = Recorder()
+args.out = args.out or ("docs/demo.gif" if args.robot == "panda" else f"docs/demo_{args.robot}.gif")
+w = build_world(robot=args.robot, log=False)
+robot, agent = w.robot, w.agent
+lay = w.scene.spec.layout
+rec = Recorder() if args.robot == "panda" else Recorder(eye=(0.95, 0.35, 1.15), target=(0.15, 0.0, 0.68))
 robot.on_step = rec
-agent = Agent(RuleParser(), Perception(SimCamera(), ColorDetector(), robot), robot)
 
 for cmd in SCRIPT:
     rec.caption = f'Kullanıcı: "{cmd}"'

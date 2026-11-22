@@ -16,11 +16,10 @@ import numpy as np
 import pybullet as p
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from voicearm.executor import Agent  # noqa: E402
 from voicearm.nlp.parser import RuleParser  # noqa: E402
-from voicearm.perception import ColorDetector, Perception, SimCamera  # noqa: E402
-from voicearm.sim.robot import PandaSim  # noqa: E402
-from voicearm.sim.scene import COLORS, build_scene  # noqa: E402
+from voicearm.perception import ColorDetector  # noqa: E402
+from voicearm.sim.scene import COLORS  # noqa: E402
+from voicearm.world import build_world  # noqa: E402
 
 TR = {"kirmizi": "kırmızı", "yesil": "yeşil", "mavi": "mavi", "sari": "sarı"}
 
@@ -29,7 +28,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--trials", type=int, default=20)
     ap.add_argument("--detector", choices=["color", "owl"], default="color")
-    ap.add_argument("--out", default="docs/eval.json")
+    ap.add_argument("--robot", choices=["panda", "proto6"], default="panda")
+    ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
     detector = ColorDetector()
@@ -41,9 +41,8 @@ def main():
     loc_err, det_hits, det_total, success, fails = [], 0, 0, 0, []
     t0 = time.time()
     for seed in range(args.trials):
-        scene = build_scene(gui=False, seed=seed)
-        robot = PandaSim(scene.robot_id, log=False)
-        perception = Perception(SimCamera(), detector, robot)
+        w = build_world(robot=args.robot, seed=seed, detector=detector, parser=parser, log=False)
+        scene, perception = w.scene, w.perception
 
         # 1) Algı doğruluğu: her nesne doğru renk/türle bulundu mu, konum hatası ne?
         dets = perception.observe()
@@ -59,7 +58,7 @@ def main():
         rng = random.Random(seed)
         c, t = rng.choice(list(COLORS)), rng.choice(["kirmizi", "mavi"])
         cmd = f"{TR[c]} küpü {TR[t]} kutuya koy"
-        reply = Agent(parser, perception, robot).handle(cmd)[-1]
+        reply = w.agent.handle(cmd)[-1]
         gt_obj, gt_tray = scene.position(f"{c}_kup"), scene.position(f"{t}_kutu")
         ok = reply.startswith("✓") and max(abs(gt_obj[0] - gt_tray[0]), abs(gt_obj[1] - gt_tray[1])) < 0.07
         success += ok
@@ -70,6 +69,7 @@ def main():
 
     loc_err = np.array(loc_err)
     res = {
+        "robot": args.robot,
         "detector": args.detector,
         "trials": args.trials,
         "detection_rate": det_hits / det_total,
@@ -79,8 +79,9 @@ def main():
         "failures": fails,
         "wall_time_s": round(time.time() - t0, 1),
     }
-    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.out).write_text(json.dumps(res, indent=2, ensure_ascii=False))
+    out = Path(args.out or f"docs/eval_{args.robot}.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(res, indent=2, ensure_ascii=False))
     print(json.dumps({k: v for k, v in res.items() if k != "failures"}, indent=2))
     for f in fails:
         print("  ✗", f)

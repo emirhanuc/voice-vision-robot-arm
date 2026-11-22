@@ -7,19 +7,13 @@ import pybullet as p
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from voicearm.executor import Agent  # noqa: E402
-from voicearm.nlp.parser import RuleParser  # noqa: E402
-from voicearm.perception import ColorDetector, Perception, SimCamera  # noqa: E402
-from voicearm.sim.robot import PandaSim  # noqa: E402
-from voicearm.sim.scene import build_scene  # noqa: E402
+from voicearm.world import build_world  # noqa: E402
 
 
 @pytest.fixture
 def world():
-    scene = build_scene(gui=False)
-    robot = PandaSim(scene.robot_id, log=False)
-    agent = Agent(RuleParser(), Perception(SimCamera(), ColorDetector(), robot), robot)
-    yield scene, agent
+    w = build_world(robot="panda", log=False)
+    yield w.scene, w.agent
     p.disconnect()
 
 
@@ -50,3 +44,28 @@ def test_errors_are_explained(world):
     _, agent = world
     assert agent.handle("mavi kutuya bırak")[-1].startswith("✗")      # elinde bir şey yok
     assert "görmedim" in agent.handle("turuncu küpü al")[-1]
+
+
+def test_four_cube_tower_stays_upright(world):
+    scene, agent = world
+    out = agent.handle("sarı küpü kırmızı küpün üstüne koy, sonra yeşil küpü sarı küpün üstüne koy, "
+                       "sonra mavi küpü yeşil küpün üstüne koy")
+    assert len(out) == 3 and all(o.startswith("✓") for o in out), out
+    for _ in range(480):          # 2 sn bekle: kule devrilecekse devrilsin
+        p.stepSimulation()
+    base, top = scene.position("kirmizi_kup"), scene.position("mavi_kup")
+    assert top[2] > base[2] + 0.14                                   # 4 kat yükseklik
+    assert abs(top[0] - base[0]) < 0.015 and abs(top[1] - base[1]) < 0.015
+
+
+def test_proto6_stepper_arm_pick_place_and_stack():
+    """Kendi 6 eksenli kol: step motor modeli (konum kontrolü, tork/hız limiti, adım çözünürlüğü)."""
+    w = build_world(robot="proto6", log=False)
+    try:
+        out = w.agent.handle("kırmızı küpü mavi kutuya koy, sonra yeşil küpü sarı küpün üstüne koy")
+        assert all(o.startswith("✓") for o in out), out
+        assert inside(w.scene, "kirmizi_kup", "mavi_kutu")
+        g, y = w.scene.position("yesil_kup"), w.scene.position("sari_kup")
+        assert abs(g[0] - y[0]) < 0.015 and abs(g[1] - y[1]) < 0.015 and g[2] > y[2] + 0.04
+    finally:
+        p.disconnect()

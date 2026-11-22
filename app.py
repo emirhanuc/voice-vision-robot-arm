@@ -2,6 +2,7 @@
 
     python app.py                       # http://127.0.0.1:7860
     python app.py --llm --whisper medium
+    python app.py --robot proto6        # kendi 6 eksenli kolum
 """
 import argparse
 import sys
@@ -12,18 +13,16 @@ import gradio as gr
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
-from voicearm.executor import Agent  # noqa: E402
-from voicearm.nlp.parser import OllamaParser, RuleParser  # noqa: E402
-from voicearm.perception import ColorDetector, Perception, SimCamera  # noqa: E402
+from voicearm.perception import ColorDetector  # noqa: E402
 from voicearm.sim.recorder import Recorder  # noqa: E402
-from voicearm.sim.robot import PandaSim  # noqa: E402
-from voicearm.sim.scene import build_scene  # noqa: E402
+from voicearm.world import build_world  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--llm", action="store_true")
 ap.add_argument("--model", default="qwen2.5:7b")
 ap.add_argument("--whisper", default="small")
 ap.add_argument("--detector", choices=["color", "owl"], default="color")
+ap.add_argument("--robot", choices=["panda", "proto6"], default="panda")
 ap.add_argument("--share", action="store_true")
 ARGS = ap.parse_args()
 
@@ -41,19 +40,19 @@ class World:
         import pybullet as p
         if p.isConnected():
             p.disconnect()
-        self.scene = build_scene(gui=False, seed=seed)
-        self.robot = PandaSim(self.scene.robot_id, log=False)
-        self.rec = Recorder(every=10)
-        self.robot.on_step = self.rec
         if self.detector is None:
             if ARGS.detector == "owl":
                 from voicearm.perception import OwlDetector
                 self.detector = OwlDetector()
             else:
                 self.detector = ColorDetector()
-        self.perception = Perception(SimCamera(), self.detector, self.robot, save_path=LOGS / "camera.png")
-        parser = OllamaParser(model=ARGS.model) if ARGS.llm else RuleParser()
-        self.agent = Agent(parser, self.perception, self.robot)
+        w = build_world(robot=ARGS.robot, seed=seed, detector=self.detector, llm=ARGS.llm, model=ARGS.model,
+                        log=False, camera_png=LOGS / "camera.png")
+        self.scene, self.robot, self.perception, self.agent = w.scene, w.robot, w.perception, w.agent
+        cam = self.scene.spec.layout
+        self.rec = Recorder(every=10, eye=(cam.camera_eye[0] + 0.2, 0.25, cam.camera_eye[2]),
+                            target=(cam.camera_target[0] - 0.05, 0.0, 0.72))
+        self.robot.on_step = self.rec
         self.perception.observe()
         self.rec.snap()
 
