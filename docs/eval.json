@@ -1,0 +1,10 @@
+{
+  "detector": "color",
+  "trials": 20,
+  "detection_rate": 1.0,
+  "loc_err_mm_mean": 3.642495908254179,
+  "loc_err_mm_p95": 4.662804239503327,
+  "task_success_rate": 1.0,
+  "failures": [],
+  "wall_time_s": 99.0
+}
